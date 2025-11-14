@@ -1,0 +1,84 @@
+cmake_minimum_required(VERSION 3.20)
+project(parser_fuzz CXX)
+
+
+find_program(CLANG_PATH clang)
+find_program(CLANGXX_PATH clang++)
+
+if (CLANG_PATH AND CLANGXX_PATH)
+    message(STATUS "Found Clang: ${CLANG_PATH}")
+    message(STATUS "Found Clang++: ${CLANGXX_PATH}")
+
+    set(CMAKE_C_COMPILER "${CLANG_PATH}" CACHE FILEPATH "" FORCE)
+    set(CMAKE_CXX_COMPILER "${CLANGXX_PATH}" CACHE FILEPATH "" FORCE)
+else()
+    exit()
+endif()
+
+
+
+#set(CMAKE_C_COMPILER clang)
+#set(CMAKE_CXX_COMPILER clang++)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+
+
+#add_link_options(-fsanitize=address,undefined)
+
+add_subdirectory(fuzztest)  
+
+fuzztest_setup_fuzzing_flags()
+set(CMAKE_BUILD_TYPE fuzztest CACHE STRING "Build type" FORCE)
+
+set(COMMON_SRC 
+	../ipfixprobe/src/plugins/process/quic/src/quicParser.cpp
+        ../ipfixprobe/src/plugins/process/quic/src/quicHeaderView.cpp
+        ../ipfixprobe/src/plugins/process/quic/src/quicInitialHeaderView.cpp
+        ../ipfixprobe/src/plugins/process/common/tlsParser/tlsParser.cpp
+)
+
+add_executable(tls_fuzz_test
+	tls_fuzz_test.cpp
+	${COMMON_SRC}
+)
+
+add_executable(quic_fuzz_test 
+	quic_fuzz_test.cpp 
+	${COMMON_SRC}
+)
+
+set(COMMON_INCLUDE 
+	${CMAKE_CURRENT_SOURCE_DIR} ../ipfixprobe/include/ipfixprobe/processPlugin
+        ../ipfixprobe/src/plugins/process/quic/src
+        ../ipfixprobe/src/plugins/process/common
+)
+
+target_include_directories(tls_fuzz_test PRIVATE 
+	${COMMON_INCLUDE}
+)
+
+
+target_include_directories(quic_fuzz_test PRIVATE 
+	${COMMON_INCLUDE}
+)
+
+find_package(OpenSSL REQUIRED)
+
+set(COMMON_LINK fuzztest::fuzztest OpenSSL::Crypto -fsanitize=address,undefined)
+
+target_link_libraries(tls_fuzz_test PRIVATE ${COMMON_LINK})
+target_link_libraries(quic_fuzz_test PRIVATE ${COMMON_LINK})
+
+link_fuzztest(tls_fuzz_test)
+link_fuzztest(quic_fuzz_test)
+
+gtest_discover_tests(tls_fuzz_test)
+gtest_discover_tests(quic_fuzz_test)
+
+set(FUZZTEST_ENGINE libfuzzer)
+target_compile_definitions(tls_fuzz_test PRIVATE FUZZTEST_USE_LIBFUZZER=1)
+
+
+#target_compile_options(parser_fuzz_test PRIVATE -g -O0)
+#target_compile_options(parser_fuzz_test PRIVATE -g -O1 -fsanitize=address,undefined -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION -UNDEBUG -fsanitize-coverage=inline-8bit-counters -fsanitize-coverage=trace-cmp -fsanitize=address -DADDRESS_SANITIZER)
